@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>ファイルアップロードUI</title>
+  <style>
+    body { display: flex; flex-direction: column; height: 100vh; margin: 0; }
+    .drop-area {
+      display: flex;
+      flex: 1;
+      justify-content: space-between;
+      align-items: stretch;
+      margin: 20px;
+    }
+    .drop-zone {
+      flex: 1;
+      margin: 0 20px;
+      border: 2px dashed #aaa;
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      min-width: 200px;
+      min-height: 300px;
+      background: #fafafa;
+      transition: border-color 0.2s;
+      padding: 10px 0 20px 0;
+    }
+    .drop-zone.dragover { border-color: #2196f3; background: #e3f2fd; }
+    .file-list { margin-top: 10px; font-size: 0.9em; }
+    .preview-img { max-width: 180px; max-height: 180px; margin: 8px 0; border-radius: 6px; border: 1px solid #ccc; }
+    .center { border-color: #4caf50; }
+    .right { border-color: #f44336; }
+    .bottom-bar { width: 100%; display: flex; justify-content: center; margin-bottom: 30px; }
+    button { padding: 10px 30px; font-size: 1.1em; }
+  </style>
+</head>
+<body>
+  <div class="drop-area">
+    <div class="drop-zone left" id="dropLeft">
+      <div>左にファイルをドロップ</div>
+      <div class="file-list" id="fileListLeft"></div>
+      <div id="previewLeft"></div>
+    </div>
+    <div class="drop-zone center" id="dropCenter">
+      <div>中央にファイルをドロップ</div>
+      <div class="file-list" id="fileListCenter"></div>
+      <div id="previewCenter"></div>
+    </div>
+    <div class="drop-zone right" id="dropRight">
+      <div>右にファイルをドロップ</div>
+      <div class="file-list" id="fileListRight"></div>
+      <div id="previewRight"></div>
+    </div>
+  </div>
+  <div class="bottom-bar">
+    <button id="uploadBtn">送信</button>
+  </div>
+  <script>
+    const dropZones = [
+      { zone: document.getElementById('dropLeft'), files: [], list: document.getElementById('fileListLeft'), preview: document.getElementById('previewLeft'), name: 'left' },
+      { zone: document.getElementById('dropCenter'), files: [], list: document.getElementById('fileListCenter'), preview: document.getElementById('previewCenter'), name: 'center' },
+      { zone: document.getElementById('dropRight'), files: [], list: document.getElementById('fileListRight'), preview: document.getElementById('previewRight'), name: 'right' }
+    ];
+
+    dropZones.forEach(({zone, files, list, preview}, idx) => {
+      zone.addEventListener('dragover', e => {
+        e.preventDefault();
+        zone.classList.add('dragover');
+      });
+      zone.addEventListener('dragleave', e => {
+        e.preventDefault();
+        zone.classList.remove('dragover');
+      });
+      zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('dragover');
+        const dropped = Array.from(e.dataTransfer.files);
+        files.length = 0;
+        files.push(...dropped);
+        list.innerHTML = files.map(f => `<div>${f.name}</div>`).join('');
+        // プレビュー表示
+        preview.innerHTML = '';
+        files.forEach(file => {
+          if (file.type.startsWith('image/')) {
+            const img = document.createElement('img');
+            img.className = 'preview-img';
+            img.file = file;
+            preview.appendChild(img);
+            const reader = new FileReader();
+            reader.onload = (function(aImg) { return function(e) { aImg.src = e.target.result; }; })(img);
+            reader.readAsDataURL(file);
+          }
+        });
+      });
+    });
+
+    document.getElementById('uploadBtn').onclick = async function() {
+      const formData = new FormData();
+      dropZones.forEach(({files, name}) => {
+        files.forEach((file, i) => {
+          formData.append(`${name}_file${i+1}`, file);
+        });
+      });
+      try {
+        const res = await fetch('/upload', {
+          method: 'POST',
+          body: formData
+        });
+        if (res.ok) {
+          alert('アップロード成功');
+        } else {
+          alert('アップロード失敗');
+        }
+      } catch (e) {
+        alert('通信エラー: ' + e);
+      }
+    };
+  </script>
+</body>
+</html>
