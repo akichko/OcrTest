@@ -1,0 +1,9 @@
+ocr:
+  endpoint: "https://xxxxx.cognitiveservices.azure.com/"
+  key: "apikey"
+face:
+  endpoint: "https://xxxxx.cognitiveservices.azure.com/"
+  key: "apikey"
+openai:
+  endpoint: "https://xxxxx.openai.azure.com/"
+  key: "apikey"
