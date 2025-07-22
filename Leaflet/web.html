@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>最寄り駅検索（Leaflet版）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body { margin: 0; height: 100vh; }
+    #container { display: flex; height: 100vh; }
+    #menu {
+      width: 320px;
+      background: #f8f8f8;
+      padding: 24px 16px;
+      box-sizing: border-box;
+      border-right: 1px solid #ccc;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    #map { flex: 1; height: 100vh; }
+    label { font-weight: bold; }
+    input[type="text"] { width: 100%; padding: 8px; font-size: 1em; }
+    button { padding: 8px 16px; font-size: 1em; cursor: pointer; }
+    #status { color: #0074d9; font-size: 0.95em; min-height: 1.5em; }
+    ul { margin:0;padding:0;list-style:none; }
+    li { padding: 4px 0; }
+  </style>
+</head>
+<body>
+<div id="container">
+  <div id="menu">
+    <label for="address">住所を入力:</label>
+    <input type="text" id="address" placeholder="例: 東京駅" />
+    <button id="searchBtn">最寄り駅検索</button>
+    <div id="status"></div>
+    <ul id="stationList"></ul>
+  </div>
+  <div id="map"></div>
+</div>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+const map = L.map('map').setView([35.681236, 139.767125], 13); // 東京駅初期表示
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+let markersLayer = L.layerGroup().addTo(map);
+
+function setStatus(msg) {
+  document.getElementById('status').textContent = msg;
+}
+
+async function geocode(address) {
+  // Nominatimでジオコーディング
+  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (data && data.length > 0) {
+    return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+  } else {
+    return null;
+  }
+}
+
+async function searchStations(lat, lon) {
+  // Overpass APIで3km以内の駅を取得
+  const query = `
+    [out:json][timeout:25];
+    node[railway=station](around:3000,${lat},${lon});
+    out body;
+  `;
+  const url = 'https://overpass-api.de/api/interpreter';
+  const res = await fetch(url, {
+    method: 'POST',
+    body: query,
+    headers: { 'Content-Type': 'text/plain' }
+  });
+  const data = await res.json();
+  return data.elements || [];
+}
+
+document.getElementById('searchBtn').onclick = async () => {
+  const address = document.getElementById('address').value.trim();
+  if (!address) {
+    setStatus('住所を入力してください');
+    return;
+  }
+  setStatus('ジオコーディング中...');
+  const loc = await geocode(address);
+  if (!loc) {
+    setStatus('住所が見つかりませんでした');
+    return;
+  }
+  map.setView([loc.lat, loc.lon], 15);
+  markersLayer.clearLayers();
+  L.marker([loc.lat, loc.lon], {icon: L.icon({iconUrl: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',iconSize:[32,32],iconAnchor:[16,32]})}).addTo(markersLayer).bindPopup('入力地点');
+  setStatus('駅を検索中...');
+  const stations = await searchStations(loc.lat, loc.lon);
+  if (stations.length === 0) {
+    setStatus('半径3km以内に駅が見つかりませんでした');
+    return;
+  }
+  // 距離計算関数
+  function calcDist(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const toRad = x => x * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+  // 近い順に5件だけ表示
+  stations.forEach(st => {
+    st._distance = calcDist(loc.lat, loc.lon, st.lat, st.lon);
+  });
+  stations.sort((a, b) => a._distance - b._distance);
+  const top5 = stations.slice(0, 5);
+  // 駅リストを左メニューに表示
+  const listElem = document.getElementById('stationList');
+  listElem.innerHTML = '';
+  top5.forEach(st => {
+    const li = document.createElement('li');
+    li.textContent = `${st.tags.name || '駅'}（${Math.round(st._distance)}m）`;
+    li.style.padding = '4px 0';
+    listElem.appendChild(li);
+    const marker = L.marker([st.lat, st.lon], {icon: L.icon({iconUrl: 'https://maps.google.com/mapfiles/ms/icons/red-dot.png',iconSize:[32,32],iconAnchor:[16,32]})})
+      .addTo(markersLayer)
+      .bindPopup((st.tags.name || '駅') + `<br>距離: ${Math.round(st._distance)}m`);
+  });
+  setStatus(`駅を${top5.length}件表示しました`);
+};
+</script>
+</body>
+</html>
