@@ -1,0 +1,8 @@
+POST https://xxxxxxx.cognitiveservices.azure.com/face/v1.0/detect?returnFaceId=true&detectionModel=detection_01 HTTP/1.1
+Host: face-akichko.cognitiveservices.azure.com
+Ocp-Apim-Subscription-Key: apikey
+Content-Type: application/octet-stream
+Content-Length: 543304
+
+@./sample.png
+
