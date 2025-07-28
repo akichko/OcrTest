@@ -28,108 +28,171 @@
   </style>
 </head>
 <body>
-<div id="container">
-  <div id="menu">
-    <label for="address">住所を入力:</label>
-    <input type="text" id="address" placeholder="例: 東京駅" />
-    <button id="searchBtn">最寄り駅検索</button>
-    <div id="status"></div>
-    <ul id="stationList"></ul>
+<div id="container" style="display:flex; flex-direction:row; height:100vh; gap:0;">
+  <div style="flex:1; display:flex; flex-direction:column; align-items:center;">
+    <div id="map1" style="width:100%; height:50vh; min-height:300px; max-height:60vh; margin-bottom:12px;"></div>
+    <div style="width:95%; max-width:400px;">
+      <label for="address1">住所を入力:</label>
+      <input type="text" id="address1" placeholder="例: 東京駅" style="width:100%;" />
+      <button id="searchBtn1" style="margin-top:8px;">最寄り駅検索</button>
+      <div id="status1"></div>
+      <label for="stationInput1" style="margin-top:8px; display:block;">駅名でハイライト:</label>
+      <input type="text" id="stationInput1" placeholder="例: 新宿" style="width:100%; margin-bottom:4px;" />
+      <ul id="stationList1"></ul>
+    </div>
   </div>
-  <div id="map"></div>
+  <div style="width:32px;"></div>
+  <div style="flex:1; display:flex; flex-direction:column; align-items:center;">
+    <div id="map2" style="width:100%; height:50vh; min-height:300px; max-height:60vh; margin-bottom:12px;"></div>
+    <div style="width:95%; max-width:400px;">
+      <label for="address2">住所を入力:</label>
+      <input type="text" id="address2" placeholder="例: 大阪駅" style="width:100%;" />
+      <button id="searchBtn2" style="margin-top:8px;">最寄り駅検索</button>
+      <div id="status2"></div>
+      <label for="stationInput2" style="margin-top:8px; display:block;">駅名でハイライト:</label>
+      <input type="text" id="stationInput2" placeholder="例: 梅田" style="width:100%; margin-bottom:4px;" />
+      <ul id="stationList2"></ul>
+    </div>
+  </div>
 </div>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script>
-const map = L.map('map').setView([35.681236, 139.767125], 13); // 東京駅初期表示
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap contributors'
-}).addTo(map);
+function createMapBlock(mapId, addressId, btnId, statusId, listId, defaultLat, defaultLon, stationInputId) {
+  const map = L.map(mapId).setView([defaultLat, defaultLon], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+  let markersLayer = L.layerGroup().addTo(map);
 
-let markersLayer = L.layerGroup().addTo(map);
+  function setStatus(msg) {
+    document.getElementById(statusId).textContent = msg;
+  }
 
-function setStatus(msg) {
-  document.getElementById('status').textContent = msg;
+  async function geocode(address) {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data && data.length > 0) {
+      return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+    } else {
+      return null;
+    }
+  }
+
+  async function searchStations(lat, lon) {
+    const query = `
+      [out:json][timeout:25];
+      node[railway=station](around:3000,${lat},${lon});
+      out body;
+    `;
+    const url = 'https://overpass-api.de/api/interpreter';
+    const res = await fetch(url, {
+      method: 'POST',
+      body: query,
+      headers: { 'Content-Type': 'text/plain' }
+    });
+    const data = await res.json();
+    return data.elements || [];
+  }
+
+  let latestStations = [];
+  let markerMap = {};
+  function highlightStations() {
+    const input = document.getElementById(stationInputId).value.trim();
+    const listElem = document.getElementById(listId);
+    Array.from(listElem.children).forEach(li => {
+      const name = li.getAttribute('data-station-name') || '';
+      // リスト色
+      if (input && name === input) {
+        li.style.background = '#ffe082';
+        li.style.color = '#d84315';
+        li.style.fontWeight = 'bold';
+      } else {
+        li.style.background = '';
+        li.style.color = '';
+        li.style.fontWeight = '';
+      }
+      // マーカー色
+      if (markerMap[name]) {
+        const iconUrl = (input && name === input)
+          ? 'https://maps.google.com/mapfiles/ms/icons/green-dot.png'
+          : 'https://maps.google.com/mapfiles/ms/icons/red-dot.png';
+        markerMap[name].setIcon(L.icon({iconUrl,iconSize:[32,32],iconAnchor:[16,32]}));
+      }
+    });
+  }
+
+  document.getElementById(stationInputId).addEventListener('input', highlightStations);
+
+  document.getElementById(btnId).onclick = async () => {
+    const address = document.getElementById(addressId).value.trim();
+    if (!address) {
+      setStatus('住所を入力してください');
+      return;
+    }
+    setStatus('ジオコーディング中...');
+    const loc = await geocode(address);
+    if (!loc) {
+      setStatus('住所が見つかりませんでした');
+      return;
+    }
+    map.setView([loc.lat, loc.lon], 15);
+    markersLayer.clearLayers();
+    markerMap = {};
+    L.marker([loc.lat, loc.lon], {icon: L.icon({iconUrl: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',iconSize:[32,32],iconAnchor:[16,32]})}).addTo(markersLayer).bindPopup('入力地点');
+    setStatus('駅を検索中...');
+    const stations = await searchStations(loc.lat, loc.lon);
+    if (stations.length === 0) {
+      setStatus('半径3km以内に駅が見つかりませんでした');
+      return;
+    }
+    function calcDist(lat1, lon1, lat2, lon2) {
+      const R = 6371000;
+      const toRad = x => x * Math.PI / 180;
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+    stations.forEach(st => {
+      st._distance = calcDist(loc.lat, loc.lon, st.lat, st.lon);
+    });
+    stations.sort((a, b) => a._distance - b._distance);
+    const top5 = stations.slice(0, 5);
+    latestStations = top5;
+    const listElem = document.getElementById(listId);
+    listElem.innerHTML = '';
+    top5.forEach(st => {
+      const li = document.createElement('li');
+      const stName = st.tags.name || '駅';
+      li.textContent = `${stName}（${Math.round(st._distance)}m）`;
+      li.setAttribute('data-station-name', stName);
+      li.style.padding = '4px 0';
+      listElem.appendChild(li);
+      const marker = L.marker([st.lat, st.lon], {icon: L.icon({iconUrl: 'https://maps.google.com/mapfiles/ms/icons/red-dot.png',iconSize:[32,32],iconAnchor:[16,32]})})
+        .addTo(markersLayer)
+        .bindPopup((st.tags.name || '駅') + `<br>距離: ${Math.round(st._distance)}m`);
+      markerMap[stName] = marker;
+      // 駅名クリックで地図ズーム＆ポップアップ
+      li.style.cursor = 'pointer';
+      li.addEventListener('click', () => {
+        // 住所マーカー（青）と駅マーカー（赤）の両方が入るバウンディングボックスを計算
+        // 住所マーカーはloc、駅マーカーはst
+        const bounds = L.latLngBounds([
+          [loc.lat, loc.lon],
+          [st.lat, st.lon]
+        ]);
+        map.fitBounds(bounds.pad(0.2), { animate: true });
+        marker.openPopup();
+      });
+    });
+    highlightStations();
+    setStatus(`駅を${top5.length}件表示しました`);
+  };
 }
 
-async function geocode(address) {
-  // Nominatimでジオコーディング
-  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
-  const res = await fetch(url);
-  const data = await res.json();
-  if (data && data.length > 0) {
-    return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-  } else {
-    return null;
-  }
-}
-
-async function searchStations(lat, lon) {
-  // Overpass APIで3km以内の駅を取得
-  const query = `
-    [out:json][timeout:25];
-    node[railway=station](around:3000,${lat},${lon});
-    out body;
-  `;
-  const url = 'https://overpass-api.de/api/interpreter';
-  const res = await fetch(url, {
-    method: 'POST',
-    body: query,
-    headers: { 'Content-Type': 'text/plain' }
-  });
-  const data = await res.json();
-  return data.elements || [];
-}
-
-document.getElementById('searchBtn').onclick = async () => {
-  const address = document.getElementById('address').value.trim();
-  if (!address) {
-    setStatus('住所を入力してください');
-    return;
-  }
-  setStatus('ジオコーディング中...');
-  const loc = await geocode(address);
-  if (!loc) {
-    setStatus('住所が見つかりませんでした');
-    return;
-  }
-  map.setView([loc.lat, loc.lon], 15);
-  markersLayer.clearLayers();
-  L.marker([loc.lat, loc.lon], {icon: L.icon({iconUrl: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',iconSize:[32,32],iconAnchor:[16,32]})}).addTo(markersLayer).bindPopup('入力地点');
-  setStatus('駅を検索中...');
-  const stations = await searchStations(loc.lat, loc.lon);
-  if (stations.length === 0) {
-    setStatus('半径3km以内に駅が見つかりませんでした');
-    return;
-  }
-  // 距離計算関数
-  function calcDist(lat1, lon1, lat2, lon2) {
-    const R = 6371000;
-    const toRad = x => x * Math.PI / 180;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  }
-  // 近い順に5件だけ表示
-  stations.forEach(st => {
-    st._distance = calcDist(loc.lat, loc.lon, st.lat, st.lon);
-  });
-  stations.sort((a, b) => a._distance - b._distance);
-  const top5 = stations.slice(0, 5);
-  // 駅リストを左メニューに表示
-  const listElem = document.getElementById('stationList');
-  listElem.innerHTML = '';
-  top5.forEach(st => {
-    const li = document.createElement('li');
-    li.textContent = `${st.tags.name || '駅'}（${Math.round(st._distance)}m）`;
-    li.style.padding = '4px 0';
-    listElem.appendChild(li);
-    const marker = L.marker([st.lat, st.lon], {icon: L.icon({iconUrl: 'https://maps.google.com/mapfiles/ms/icons/red-dot.png',iconSize:[32,32],iconAnchor:[16,32]})})
-      .addTo(markersLayer)
-      .bindPopup((st.tags.name || '駅') + `<br>距離: ${Math.round(st._distance)}m`);
-  });
-  setStatus(`駅を${top5.length}件表示しました`);
-};
+createMapBlock('map1', 'address1', 'searchBtn1', 'status1', 'stationList1', 35.681236, 139.767125, 'stationInput1');
+createMapBlock('map2', 'address2', 'searchBtn2', 'status2', 'stationList2', 34.702485, 135.495951, 'stationInput2');
 </script>
 </body>
 </html>
